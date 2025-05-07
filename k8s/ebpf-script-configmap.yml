@@ -1,0 +1,115 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: improved-kprobe-script
+  namespace: monitoring
+data:
+  improved-monitor.sh: |
+    #!/bin/sh
+    
+    echo "Starting improved security monitoring..."
+    LOG_FILE="/tmp/security-events.log"
+    TRACEFS_PATH="/sys/kernel/debug/tracing"
+    
+    # Check if we have tracefs access
+    if [ -d "$TRACEFS_PATH" ] && [ -w "$TRACEFS_PATH/kprobe_events" ]; then
+      echo "Kernel tracing is available, setting up probes..."
+      
+      # Try enabling general tracing
+      echo 1 > $TRACEFS_PATH/tracing_on 2>/dev/null || 
+        echo "Failed to enable tracing, continuing anyway"
+      
+      # Clean existing probes first to avoid errors
+      echo > $TRACEFS_PATH/kprobe_events 2>/dev/null
+      
+      # Setup multiple probes with error handling for each
+      # Process execution monitoring
+      (echo 'p:exec_probe do_execve' > $TRACEFS_PATH/kprobe_events 2>/dev/null &&
+        echo 1 > $TRACEFS_PATH/events/kprobes/exec_probe/enable 2>/dev/null &&
+        echo "Enabled exec_probe") || echo "Failed to setup exec_probe"
+      
+      # Container creation monitoring
+      (echo 'p:container_probe security_capable' >> $TRACEFS_PATH/kprobe_events 2>/dev/null &&
+        echo 1 > $TRACEFS_PATH/events/kprobes/container_probe/enable 2>/dev/null &&
+        echo "Enabled container_probe") || echo "Failed to setup container_probe"
+      
+      # Mount operations monitoring
+      (echo 'p:mount_probe security_sb_mount' >> $TRACEFS_PATH/kprobe_events 2>/dev/null &&
+        echo 1 > $TRACEFS_PATH/events/kprobes/mount_probe/enable 2>/dev/null &&
+        echo "Enabled mount_probe") || echo "Failed to setup mount_probe"
+      
+      # Module loading monitoring 
+      (echo 'p:module_probe load_module' >> $TRACEFS_PATH/kprobe_events 2>/dev/null &&
+        echo 1 > $TRACEFS_PATH/events/kprobes/module_probe/enable 2>/dev/null &&
+        echo "Enabled module_probe") || echo "Failed to setup module_probe"
+      
+      # Start reading from trace pipe if it exists
+      if [ -r "$TRACEFS_PATH/trace_pipe" ]; then
+        echo "Starting trace pipe monitoring..."
+        (cat $TRACEFS_PATH/trace_pipe | while read line; do
+          timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+          echo "[$timestamp] $line" | tee -a $LOG_FILE
+        done) &
+        TRACE_PID=$!
+      else
+        echo "Trace pipe not readable, falling back to basic monitoring"
+        TRACE_PID=0
+      fi
+    else
+      echo "Kernel tracing is not available, using basic monitoring"
+      TRACE_PID=0
+    fi
+    
+    # Periodic system monitoring regardless of kprobe availability
+    echo "Starting periodic system monitoring..."
+    
+    # Function to detect suspicious activities through standard commands
+    monitor_system() {
+      echo "=== Security scan at $(date) ===" | tee -a $LOG_FILE
+      
+      # Check for privileged containers
+      echo "Checking for privileged containers..." | tee -a $LOG_FILE
+      ps aux | grep -E 'docker|containerd' | grep -v grep | tee -a $LOG_FILE
+      
+      # Check for unexpected listeners
+      echo "Checking network listeners..." | tee -a $LOG_FILE
+      netstat -tulpn 2>/dev/null || ss -tulpn 2>/dev/null || echo "No network tools available" | tee -a $LOG_FILE
+      
+      # Look for processes running as root in containers
+      echo "Checking for root processes..." | tee -a $LOG_FILE
+      ps -eo user,pid,ppid,cmd --sort=user | head -20 | tee -a $LOG_FILE
+      
+      # Check for recent file modifications in sensitive paths
+      echo "Checking sensitive file modifications..." | tee -a $LOG_FILE
+      find /etc /var/lib/kubelet /etc/kubernetes -type f -mmin -60 2>/dev/null | head -10 | tee -a $LOG_FILE
+      
+      # Check node resource usage (could indicate cryptomining)
+      echo "Checking system load..." | tee -a $LOG_FILE
+      uptime | tee -a $LOG_FILE
+      free -m | tee -a $LOG_FILE
+      
+      # Check for unusual processes with high CPU/Memory
+      echo "Checking resource-intensive processes..." | tee -a $LOG_FILE
+      ps -eo pid,ppid,cmd,%cpu,%mem --sort=-%cpu | head -10 | tee -a $LOG_FILE
+    }
+    
+    # Function for cleanup on exit
+    cleanup() {
+      echo "Cleaning up monitoring..."
+      if [ $TRACE_PID -ne 0 ]; then
+        kill $TRACE_PID 2>/dev/null
+        # Clean up probes
+        echo > $TRACEFS_PATH/kprobe_events 2>/dev/null
+        echo 0 > $TRACEFS_PATH/tracing_on 2>/dev/null
+      fi
+      exit 0
+    }
+    
+    # Set up signal handling
+    trap cleanup SIGINT SIGTERM
+    
+    # Start periodic monitoring
+    while true; do
+      monitor_system
+      sleep 300  # Every 5 minutes
+    done

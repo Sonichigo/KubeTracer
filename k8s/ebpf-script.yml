@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: security-monitor
+  namespace: monitoring
+  labels:
+    app: security-monitor
+spec:
+  selector:
+    matchLabels:
+      app: security-monitor
+  template:
+    metadata:
+      labels:
+        app: security-monitor
+    spec:
+      hostPID: true
+      containers:
+        - name: monitor
+          # Using Ubuntu minimal which is working in your environment
+          image: ubuntu:22.04
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: kernel-debug
+              mountPath: /sys/kernel/debug
+            - name: host-proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: host-etc
+              mountPath: /host/etc
+              readOnly: true
+            - name: host-var
+              mountPath: /host/var
+              readOnly: true
+            - name: monitor-script
+              mountPath: /scripts
+              readOnly: true
+            - name: log-volume
+              mountPath: /logs
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              # Install necessary tools first
+              apt-get update -y && apt-get install -y procps net-tools iproute2 findutils
+              
+              # Copy script - work around read-only issue
+              cp /scripts/improved-monitor.sh /tmp/
+              chmod +x /tmp/improved-monitor.sh
+              
+              # Run monitor with output to persistent volume
+              export LOG_FILE="/logs/security-events.log"
+              /tmp/improved-monitor.sh
+      volumes:
+        - name: kernel-debug
+          hostPath:
+            path: /sys/kernel/debug
+        - name: host-proc
+          hostPath:
+            path: /proc
+        - name: host-etc
+          hostPath:
+            path: /etc
+        - name: host-var
+          hostPath:
+            path: /var
+        - name: monitor-script
+          configMap:
+            name: improved-kprobe-script
+        - name: log-volume
+          # For production, replace with PVC for persistent storage
+          emptyDir: {}
+      tolerations:
+        - operator: "Exists"
+      restartPolicy: Always

@@ -1,0 +1,171 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: security-metrics-exporter
+  namespace: monitoring
+data:
+  exporter.py: |
+    #!/usr/bin/env python3
+    
+    import os
+    import re
+    import time
+    import json
+    import subprocess
+    from prometheus_client import start_http_server, Counter, Gauge, Summary
+    
+    # Define Prometheus metrics
+    SECURITY_EVENTS = Counter('security_event_total', 'Total security events detected')
+    SECURITY_EVENTS_BY_TYPE = Counter('security_event_by_type', 'Security events by type', ['event_type', 'source', 'severity'])
+    CRITICAL_EVENTS = Counter('security_critical_events_total', 'Total critical security events')
+    
+    PRIVILEGED_CONTAINERS = Gauge('security_privileged_containers', 'Number of privileged containers running')
+    FILE_MODIFICATIONS = Counter('security_file_modifications', 'Sensitive file modifications detected')
+    
+    ROOT_PROCESSES = Gauge('security_root_processes', 'Processes running as root')
+    HIGH_CPU_PROCESSES = Gauge('security_high_cpu_processes', 'Number of processes using high CPU')
+    HIGH_MEM_PROCESSES = Gauge('security_high_mem_processes', 'Number of processes using high memory')
+    
+    KPROBE_EVENTS = Counter('security_kprobe_events', 'Events captured by kprobes', ['probe_type'])
+    
+    LOG_PARSE_TIME = Summary('security_log_parse_seconds', 'Time spent parsing security logs')
+    
+    # Log file path
+    LOG_FILE = os.environ.get('SECURITY_LOG_PATH', '/logs/security-events.log')
+    
+    def parse_security_logs():
+        """Parse the security log file and update metrics"""
+        if not os.path.exists(LOG_FILE):
+            print(f"Log file {LOG_FILE} does not exist yet")
+            return
+        
+        try:
+            # Get the file size to track reading
+            file_size = os.path.getsize(LOG_FILE)
+            
+            with open(LOG_FILE, 'r') as log_file:
+                # Read the last 1000 lines to avoid processing the entire file each time
+                lines = log_file.readlines()[-1000:]
+                
+                for line in lines:
+                    # Process exec probe events - process execution
+                    if "exec_probe" in line:
+                        SECURITY_EVENTS.inc()
+                        SECURITY_EVENTS_BY_TYPE.labels(event_type="process_execution", source="kprobe", severity="info").inc()
+                        KPROBE_EVENTS.labels(probe_type="exec").inc()
+                    
+                    # Process container probe events
+                    if "container_probe" in line:
+                        SECURITY_EVENTS.inc()
+                        SECURITY_EVENTS_BY_TYPE.labels(event_type="container_operation", source="kprobe", severity="info").inc()
+                        KPROBE_EVENTS.labels(probe_type="container").inc()
+                    
+                    # Process mount probe events
+                    if "mount_probe" in line:
+                        SECURITY_EVENTS.inc()
+                        SECURITY_EVENTS_BY_TYPE.labels(event_type="mount_operation", source="kprobe", severity="warning").inc()
+                        KPROBE_EVENTS.labels(probe_type="mount").inc()
+                        # Mount operations are often security sensitive
+                        CRITICAL_EVENTS.inc()
+                    
+                    # Process module probe events - kernel module loading
+                    if "module_probe" in line:
+                        SECURITY_EVENTS.inc()
+                        SECURITY_EVENTS_BY_TYPE.labels(event_type="module_loading", source="kprobe", severity="critical").inc()
+                        KPROBE_EVENTS.labels(probe_type="module").inc()
+                        # Module loading is a critical security event
+                        CRITICAL_EVENTS.inc()
+                    
+                    # Detect file modifications
+                    if "Checking sensitive file modifications" in line or "find /etc /var/lib/kubelet" in line:
+                        # Count any detected file modifications
+                        next_line_idx = lines.index(line) + 1
+                        if next_line_idx < len(lines) and lines[next_line_idx].strip() and not lines[next_line_idx].startswith("==="):
+                            FILE_MODIFICATIONS.inc()
+                            SECURITY_EVENTS.inc()
+                            SECURITY_EVENTS_BY_TYPE.labels(event_type="file_modification", source="find", severity="warning").inc()
+        
+        except Exception as e:
+            print(f"Error parsing security logs: {e}")
+    
+    def check_privileged_containers():
+        """Count privileged containers running in the cluster"""
+        try:
+            # This would ideally use the Kubernetes API, but for this example we'll parse output
+            result = subprocess.run(
+                ["ps", "aux"], 
+                capture_output=True, 
+                text=True
+            )
+            output = result.stdout
+            
+            # Count Docker/containerd processes that might indicate privileged containers
+            privileged_count = len(re.findall(r'--privileged', output))
+            PRIVILEGED_CONTAINERS.set(privileged_count)
+            
+            if privileged_count > 0:
+                SECURITY_EVENTS.inc()
+                SECURITY_EVENTS_BY_TYPE.labels(event_type="privileged_container", source="ps", severity="warning").inc()
+                
+        except Exception as e:
+            print(f"Error checking privileged containers: {e}")
+    
+    def check_high_resource_processes():
+        """Check for processes using high CPU or memory"""
+        try:
+            # Get top processes by CPU and memory
+            result = subprocess.run(
+                ["ps", "-eo", "pid,ppid,cmd,%cpu,%mem", "--sort=-%cpu"], 
+                capture_output=True, 
+                text=True
+            )
+            output = result.stdout
+            
+            # Count processes with high CPU (>50%)
+            high_cpu = len(re.findall(r'\s+([5-9][0-9]|100)\.\d+\s+', output))
+            HIGH_CPU_PROCESSES.set(high_cpu)
+            
+            # Count processes running as root
+            root_processes = len(re.findall(r'^root\s+', output, re.MULTILINE))
+            ROOT_PROCESSES.set(root_processes)
+            
+            # Count processes with high memory (>20%)
+            high_mem = len(re.findall(r'\s+\d+\.\d+\s+([2-9][0-9]|100)\.\d+\s*$', output, re.MULTILINE))
+            HIGH_MEM_PROCESSES.set(high_mem)
+            
+            if high_cpu > 5:  # Arbitrary threshold for demonstration
+                SECURITY_EVENTS.inc()
+                SECURITY_EVENTS_BY_TYPE.labels(event_type="high_cpu_usage", source="ps", severity="warning").inc()
+                
+            if high_mem > 3:  # Arbitrary threshold
+                SECURITY_EVENTS.inc()
+                SECURITY_EVENTS_BY_TYPE.labels(event_type="high_memory_usage", source="ps", severity="warning").inc()
+                
+        except Exception as e:
+            print(f"Error checking high resource processes: {e}")
+    
+    def main():
+        # Start up the server to expose metrics
+        start_http_server(8000)
+        print("Metrics server started on port 8000")
+        
+        # Initial data collection
+        parse_security_logs()
+        check_privileged_containers()
+        check_high_resource_processes()
+        
+        # Update metrics every 60 seconds
+        while True:
+            time.sleep(60)
+            
+            # Measure time taken to parse logs
+            with LOG_PARSE_TIME.time():
+                parse_security_logs()
+                
+            check_privileged_containers()
+            check_high_resource_processes()
+            
+            print("Metrics updated")
+    
+    if __name__ == '__main__':
+        main()
