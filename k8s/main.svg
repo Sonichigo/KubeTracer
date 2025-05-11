@@ -1,0 +1,82 @@
+<svg viewBox="0 0 800 500" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background and title -->
+  <rect x="0" y="0" width="800" height="500" fill="#f8f9fa" rx="10" ry="10" />
+  <text x="400" y="40" text-anchor="middle" font-family="Arial" font-size="24" font-weight="bold" fill="#333">Kubernetes Security Monitoring Architecture</text>
+  
+  <!-- Node boundaries -->
+  <rect x="50" y="80" width="700" height="340" rx="10" ry="10" fill="#e9ecef" stroke="#adb5bd" stroke-width="2" stroke-dasharray="5,5" />
+  <text x="400" y="105" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold" fill="#495057">Kubernetes Node</text>
+  
+  <!-- DaemonSet Pod -->
+  <rect x="80" y="130" width="300" height="220" rx="8" ry="8" fill="#ffffff" stroke="#6c757d" stroke-width="2" />
+  <text x="230" y="155" text-anchor="middle" font-family="Arial" font-size="14" font-weight="bold" fill="#495057">Security Monitor DaemonSet Pod</text>
+  
+  <!-- Container inside DaemonSet -->
+  <rect x="100" y="170" width="260" height="160" rx="5" ry="5" fill="#e6f7ff" stroke="#1890ff" stroke-width="1" />
+  <text x="230" y="190" text-anchor="middle" font-family="Arial" font-size="12" fill="#1890ff">Container (privileged: true, hostPID: true)</text>
+  
+  <!-- ConfigMap mounted script -->
+  <rect x="120" y="210" width="100" height="40" rx="5" ry="5" fill="#fff2e8" stroke="#fa8c16" stroke-width="1" />
+  <text x="170" y="235" text-anchor="middle" font-family="Arial" font-size="10" fill="#fa8c16">Monitor Script</text>
+  
+  <!-- Kernel Probes -->
+  <rect x="120" y="260" width="100" height="40" rx="5" ry="5" fill="#f6ffed" stroke="#52c41a" stroke-width="1" />
+  <text x="170" y="285" text-anchor="middle" font-family="Arial" font-size="10" fill="#52c41a">eBPF kprobes</text>
+  
+  <!-- Log file -->
+  <rect x="240" y="240" width="100" height="40" rx="5" ry="5" fill="#fff0f6" stroke="#eb2f96" stroke-width="1" />
+  <text x="290" y="260" text-anchor="middle" font-family="Arial" font-size="10" fill="#eb2f96">security-events.log</text>
+  <text x="290" y="273" text-anchor="middle" font-family="Arial" font-size="8" fill="#eb2f96">hostPath volume</text>
+  
+  <!-- Exporter Deployment -->
+  <rect x="450" y="130" width="280" height="180" rx="8" ry="8" fill="#ffffff" stroke="#6c757d" stroke-width="2" />
+  <text x="590" y="155" text-anchor="middle" font-family="Arial" font-size="14" font-weight="bold" fill="#495057">Metrics Exporter Deployment</text>
+  
+  <!-- Container inside Exporter -->
+  <rect x="470" y="170" width="240" height="120" rx="5" ry="5" fill="#f9f0ff" stroke="#722ed1" stroke-width="1" />
+  <text x="590" y="190" text-anchor="middle" font-family="Arial" font-size="12" fill="#722ed1">Python Container</text>
+  
+  <!-- Exporter script -->
+  <rect x="490" y="210" width="90" height="40" rx="5" ry="5" fill="#fff2e8" stroke="#fa8c16" stroke-width="1" />
+  <text x="535" y="235" text-anchor="middle" font-family="Arial" font-size="10" fill="#fa8c16">exporter.py</text>
+  
+  <!-- Metrics endpoint -->
+  <rect x="600" y="210" width="90" height="40" rx="5" ry="5" fill="#e6fffb" stroke="#13c2c2" stroke-width="1" />
+  <text x="645" y="235" text-anchor="middle" font-family="Arial" font-size="10" fill="#13c2c2">:8000/metrics</text>
+  
+  <!-- Service -->
+  <rect x="450" y="340" width="280" height="60" rx="8" ry="8" fill="#ffffff" stroke="#6c757d" stroke-width="2" />
+  <text x="590" y="365" text-anchor="middle" font-family="Arial" font-size="14" font-weight="bold" fill="#495057">ClusterIP Service</text>
+  <text x="590" y="385" text-anchor="middle" font-family="Arial" font-size="12" fill="#6c757d">security-monitor-exporter:8000</text>
+  
+  <!-- Connections -->
+  <!-- Kernel to DaemonSet -->
+  <path d="M170 310 L170 330 L70 330 L70 250 L120 250" stroke="#52c41a" stroke-width="2" fill="none" stroke-dasharray="4,2" />
+  <text x="90" y="260" text-anchor="middle" font-family="Arial" font-size="9" fill="#52c41a" transform="rotate(-90 90,260)">Kernel Events</text>
+  
+  <!-- Script to Log -->
+  <path d="M220 230 L240 240" stroke="#fa8c16" stroke-width="2" fill="none" />
+  <polygon points="235,242 245,244 240,235" fill="#fa8c16" />
+  
+  <!-- Log to Exporter -->
+  <path d="M340 260 L400 260 L400 230 L450 230" stroke="#eb2f96" stroke-width="2" fill="none" />
+  <polygon points="445,234 455,230 445,226" fill="#eb2f96" />
+  <text x="400" y="245" text-anchor="middle" font-family="Arial" font-size="9" fill="#eb2f96">Read Logs</text>
+  
+  <!-- Exporter to Service -->
+  <path d="M590 290 L590 340" stroke="#722ed1" stroke-width="2" fill="none" />
+  <polygon points="586,335 590,345 594,335" fill="#722ed1" />
+  <text x="605" y="315" text-anchor="middle" font-family="Arial" font-size="9" fill="#722ed1">Expose Metrics</text>
+  
+  <!-- Service to External -->
+  <path d="M590 400 L590 440" stroke="#13c2c2" stroke-width="2" fill="none" />
+  <polygon points="586,435 590,445 594,435" fill="#13c2c2" />
+  <text x="605" y="420" text-anchor="middle" font-family="Arial" font-size="9" fill="#13c2c2">Prometheus Scrape</text>
+  
+  <!-- Legend -->
+  <rect x="600" y="440" width="150" height="40" rx="5" ry="5" fill="white" stroke="#333" stroke-width="1" />
+  <circle cx="615" y="450" r="5" fill="#52c41a" />
+  <text x="630" y="454" font-family="Arial" font-size="10" fill="#333">eBPF Events</text>
+  <circle cx="615" y="470" r="5" fill="#722ed1" />
+  <text x="630" y="474" font-family="Arial" font-size="10" fill="#333">Metrics Flow</text>
+</svg>
