@@ -1,13 +1,13 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: improved-kprobe-script
+  name: kprobe-script
   namespace: monitoring
 data:
-  improved-monitor.sh: |
+  monitor.sh: |
     #!/bin/sh
     
-    echo "Starting improved security monitoring..."
+    echo "Starting security monitoring..."
     LOG_FILE="/tmp/security-events.log"
     TRACEFS_PATH="/sys/kernel/debug/tracing"
     
