@@ -4,7 +4,7 @@ A security monitoring solution to monitor system events on your cluster nodes. B
 The modular architecture ensures ease of deployment and scalability across clusters of any size. Whether you're securing a production environment or auditing development clusters, this observability pipeline adds a powerful layer of defense.
 
 ## Architecture
-![Architecture](../main.svg)
+![Architecture](./main.svg)
 
 Our security monitoring solution consists of four main components working together to detect, collect, and expose security-relevant events:
 
