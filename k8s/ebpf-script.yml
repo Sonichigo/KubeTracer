@@ -45,12 +45,12 @@ spec:
               apt-get update -y && apt-get install -y procps net-tools iproute2 findutils
               
               # Copy script - work around read-only issue
-              cp /scripts/improved-monitor.sh /tmp/
-              chmod +x /tmp/improved-monitor.sh
+              cp /scripts/monitor.sh /tmp/
+              chmod +x /tmp/monitor.sh
               
               # Run monitor with output to persistent volume
               export LOG_FILE="/logs/security-events.log"
-              /tmp/improved-monitor.sh
+              /tmp/monitor.sh
       volumes:
         - name: kernel-debug
           hostPath:
@@ -66,7 +66,7 @@ spec:
             path: /var
         - name: monitor-script
           configMap:
-            name: improved-kprobe-script
+            name: kprobe-script
         - name: log-volume
           # For production, replace with PVC for persistent storage
           emptyDir: {}
