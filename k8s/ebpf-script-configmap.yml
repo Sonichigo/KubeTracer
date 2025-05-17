@@ -6,96 +6,259 @@ metadata:
 data:
   monitor.sh: |
     #!/bin/sh
-    
-    echo "Starting security monitoring..."
+        
+    echo "Starting improved security monitoring with enhanced logging..."
     LOG_FILE="/tmp/security-events.log"
     TRACEFS_PATH="/sys/kernel/debug/tracing"
     
+    # Color codes for beautiful logs
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[0;33m'
+    BLUE='\033[0;34m'
+    PURPLE='\033[0;35m'
+    CYAN='\033[0;36m'
+    BOLD='\033[1m'
+    NC='\033[0m' # No Color
+    
     # Check if we have tracefs access
-    if [ -d "$TRACEFS_PATH" ] && [ -w "$TRACEFS_PATH/kprobe_events" ]; then
-      echo "Kernel tracing is available, setting up probes..."
+    if [ -d "$TRACEFS_PATH" ] && [ -w "$TRACEFS_PATH" ]; then
+      echo -e "${GREEN}Kernel tracing is available, setting up probes...${NC}"
       
       # Try enabling general tracing
       echo 1 > $TRACEFS_PATH/tracing_on 2>/dev/null || 
-        echo "Failed to enable tracing, continuing anyway"
+        echo -e "${YELLOW}Failed to enable tracing, continuing anyway${NC}"
       
       # Clean existing probes first to avoid errors
       echo > $TRACEFS_PATH/kprobe_events 2>/dev/null
       
-      # Setup multiple probes with error handling for each
-      # Process execution monitoring
-      (echo 'p:exec_probe do_execve' > $TRACEFS_PATH/kprobe_events 2>/dev/null &&
-        echo 1 > $TRACEFS_PATH/events/kprobes/exec_probe/enable 2>/dev/null &&
-        echo "Enabled exec_probe") || echo "Failed to setup exec_probe"
+      # Setup improved probes with better event format
+      # First, set trace_pipe format to include more details
+      echo "overwrite" > $TRACEFS_PATH/trace_options 2>/dev/null
+      echo "sym-offset" > $TRACEFS_PATH/trace_options 2>/dev/null
+      echo "userstacktrace" > $TRACEFS_PATH/trace_options 2>/dev/null
+      echo "sym-userobj" > $TRACEFS_PATH/trace_options 2>/dev/null
+      echo "print-parent" > $TRACEFS_PATH/trace_options 2>/dev/null
       
-      # Container creation monitoring
+            # Setup enhanced probes with more context
+      # Process execution monitoring with arguments
+      echo 'p:exec_probe do_execve cmd=+0(%di):string' > $TRACEFS_PATH/kprobe_events 2>/dev/null
+      if [ $? -eq 0 ]; then
+        echo 1 > $TRACEFS_PATH/events/kprobes/exec_probe/enable 2>/dev/null
+        echo -e "${GREEN}Enabled exec_probe with command arguments${NC}"
+      else 
+        echo -e "${RED}Failed to setup exec_probe${NC}"
+      fi
+      
+      # Container security monitoring with capability details
+      # Try different probe format variations to find one that works
+      (echo 'p:container_probe security_capable cap=%di:u32' >> $TRACEFS_PATH/kprobe_events 2>/dev/null && 
+       echo 1 > $TRACEFS_PATH/events/kprobes/container_probe/enable 2>/dev/null &&
+       echo -e "${GREEN}Enabled container_probe with capability info (format 1)${NC}") || 
       (echo 'p:container_probe security_capable' >> $TRACEFS_PATH/kprobe_events 2>/dev/null &&
-        echo 1 > $TRACEFS_PATH/events/kprobes/container_probe/enable 2>/dev/null &&
-        echo "Enabled container_probe") || echo "Failed to setup container_probe"
+       echo 1 > $TRACEFS_PATH/events/kprobes/container_probe/enable 2>/dev/null &&
+       echo -e "${GREEN}Enabled container_probe (format 2)${NC}") ||
+      echo -e "${RED}Failed to setup container_probe${NC}"
       
-      # Mount operations monitoring
-      (echo 'p:mount_probe security_sb_mount' >> $TRACEFS_PATH/kprobe_events 2>/dev/null &&
-        echo 1 > $TRACEFS_PATH/events/kprobes/mount_probe/enable 2>/dev/null &&
-        echo "Enabled mount_probe") || echo "Failed to setup mount_probe"
+      # Mount operations monitoring with more context
+      echo 'p:mount_probe security_sb_mount dev=+0(%di):string type=+0(%si):string' >> $TRACEFS_PATH/kprobe_events 2>/dev/null
+      if [ $? -eq 0 ]; then
+        echo 1 > $TRACEFS_PATH/events/kprobes/mount_probe/enable 2>/dev/null
+        echo -e "${GREEN}Enabled mount_probe with filesystem details${NC}"
+      else
+        echo -e "${RED}Failed to setup mount_probe${NC}"
+      fi
       
-      # Module loading monitoring 
-      (echo 'p:module_probe load_module' >> $TRACEFS_PATH/kprobe_events 2>/dev/null &&
-        echo 1 > $TRACEFS_PATH/events/kprobes/module_probe/enable 2>/dev/null &&
-        echo "Enabled module_probe") || echo "Failed to setup module_probe"
+      # Module loading monitoring with module name
+      echo 'p:module_probe load_module name=+0(%di):string' >> $TRACEFS_PATH/kprobe_events 2>/dev/null
+      if [ $? -eq 0 ]; then
+        echo 1 > $TRACEFS_PATH/events/kprobes/module_probe/enable 2>/dev/null
+        echo -e "${GREEN}Enabled module_probe with module name${NC}"
+      else
+        echo -e "${RED}Failed to setup module_probe${NC}"
+      fi
       
-      # Start reading from trace pipe if it exists
+      # Format the trace pipe output with beautiful formatting
       if [ -r "$TRACEFS_PATH/trace_pipe" ]; then
-        echo "Starting trace pipe monitoring..."
-        (cat $TRACEFS_PATH/trace_pipe | while read line; do
-          timestamp=$(date +"%Y-%m-%d %H:%M:%S")
-          echo "[$timestamp] $line" | tee -a $LOG_FILE
-        done) &
+        echo -e "${BLUE}Starting enhanced trace pipe monitoring...${NC}"
+        # Use alternative approach for background processing that's Dash compatible
+        trace_pipe_monitor() {
+          cat $TRACEFS_PATH/trace_pipe | while read line; do
+            timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+            
+            # Record raw line for debugging
+            echo "RAW: $line" >> "${LOG_FILE}.debug"
+            
+            # Extract common fields more robustly
+            process=$(echo "$line" | awk '{print $1}')
+            
+            # First, capture the exact format seen in your logs
+            # Format like "d..1." or similar CPU trace info
+            cpu_info=$(echo "$line" | awk '{print $3}')
+            
+            # Extract actual PID - first try standard format with brackets
+            pid=$(echo "$line" | grep -o '\[[0-9]*\]' | grep -o '[0-9]*')
+            if [ -z "$pid" ]; then
+              # If not found, try to get the value before the CPU trace info
+              pid=$(echo "$line" | awk '{print $2}')
+            fi
+            
+            # Pretty format different event types with color
+            if echo "$line" | grep -q "exec_probe"; then
+              cmd=$(echo "$line" | grep -o 'cmd="[^"]*"' | sed 's/cmd="//;s/"$//')
+              echo -e "[$timestamp] ${BOLD}${BLUE}EXEC${NC} | Process: ${CYAN}$process${NC} | PID: ${CYAN}$pid${NC} | Command: ${YELLOW}$cmd${NC}" | tee -a $LOG_FILE
+              
+            elif echo "$line" | grep -q "container_probe"; then
+              # Extract capabilities directly using grep for "cap=" pattern
+              cap=$(echo "$line" | grep -o 'cap=[0-9]*' | grep -o '[0-9]*')
+              
+              # If that fails, try broader pattern matching
+              if [ -z "$cap" ]; then
+                # Look for any number after "cap=" or "capability=" with various spacing
+                cap=$(echo "$line" | sed -n 's/.*[Cc][Aa][Pp][^0-9]*\([0-9]\+\).*/\1/p')
+              fi
+              
+              # If still empty, check the entire line for standalone numbers that might be capabilities
+              if [ -z "$cap" ]; then
+                cap="unknown"
+              fi
+              
+              # Map capability number to name if possible
+              cap_name="unknown"
+              if [ "$cap" = "0" ]; then cap_name="CAP_CHOWN"; fi
+              if [ "$cap" = "1" ]; then cap_name="CAP_DAC_OVERRIDE"; fi
+              if [ "$cap" = "2" ]; then cap_name="CAP_DAC_READ_SEARCH"; fi
+              if [ "$cap" = "3" ]; then cap_name="CAP_FOWNER"; fi
+              if [ "$cap" = "4" ]; then cap_name="CAP_FSETID"; fi
+              if [ "$cap" = "5" ]; then cap_name="CAP_KILL"; fi
+              if [ "$cap" = "6" ]; then cap_name="CAP_SETGID"; fi
+              if [ "$cap" = "7" ]; then cap_name="CAP_SETUID"; fi
+              if [ "$cap" = "8" ]; then cap_name="CAP_SETPCAP"; fi
+              if [ "$cap" = "9" ]; then cap_name="CAP_LINUX_IMMUTABLE"; fi
+              if [ "$cap" = "10" ]; then cap_name="CAP_NET_BIND_SERVICE"; fi
+              if [ "$cap" = "12" ]; then cap_name="CAP_NET_ADMIN"; fi
+              if [ "$cap" = "14" ]; then cap_name="CAP_IPC_LOCK"; fi
+              if [ "$cap" = "15" ]; then cap_name="CAP_IPC_OWNER"; fi
+              if [ "$cap" = "16" ]; then cap_name="CAP_SYS_MODULE"; fi
+              if [ "$cap" = "17" ]; then cap_name="CAP_SYS_RAWIO"; fi
+              if [ "$cap" = "18" ]; then cap_name="CAP_SYS_CHROOT"; fi
+              if [ "$cap" = "19" ]; then cap_name="CAP_SYS_PTRACE"; fi
+              if [ "$cap" = "20" ]; then cap_name="CAP_SYS_PACCT"; fi
+              if [ "$cap" = "21" ]; then cap_name="CAP_SYS_ADMIN"; fi
+              if [ "$cap" = "22" ]; then cap_name="CAP_SYS_BOOT"; fi
+              if [ "$cap" = "23" ]; then cap_name="CAP_SYS_NICE"; fi
+              if [ "$cap" = "24" ]; then cap_name="CAP_SYS_RESOURCE"; fi
+              if [ "$cap" = "25" ]; then cap_name="CAP_SYS_TIME"; fi
+              if [ "$cap" = "26" ]; then cap_name="CAP_SYS_TTY_CONFIG"; fi
+              if [ "$cap" = "27" ]; then cap_name="CAP_MKNOD"; fi
+              if [ "$cap" = "28" ]; then cap_name="CAP_LEASE"; fi
+              if [ "$cap" = "29" ]; then cap_name="CAP_AUDIT_WRITE"; fi
+              if [ "$cap" = "30" ]; then cap_name="CAP_AUDIT_CONTROL"; fi
+              if [ "$cap" = "31" ]; then cap_name="CAP_SETFCAP"; fi
+              if [ "$cap" = "32" ]; then cap_name="CAP_MAC_OVERRIDE"; fi
+              if [ "$cap" = "33" ]; then cap_name="CAP_MAC_ADMIN"; fi
+              if [ "$cap" = "34" ]; then cap_name="CAP_SYSLOG"; fi
+              if [ "$cap" = "35" ]; then cap_name="CAP_WAKE_ALARM"; fi
+              if [ "$cap" = "36" ]; then cap_name="CAP_BLOCK_SUSPEND"; fi
+              if [ "$cap" = "37" ]; then cap_name="CAP_AUDIT_READ"; fi
+              if [ "$cap" = "38" ]; then cap_name="CAP_PERFMON"; fi
+              if [ "$cap" = "39" ]; then cap_name="CAP_BPF"; fi
+              if [ "$cap" = "40" ]; then cap_name="CAP_CHECKPOINT_RESTORE"; fi
+              
+              # Display CPU trace info instead of trying to parse it as PID
+              echo -e "[$timestamp] ${BOLD}${PURPLE}CONTAINER${NC} | Process: ${CYAN}$process${NC} | PID: ${CYAN}$pid${NC} | CPU: ${BLUE}$cpu_trace${NC} | Capability: ${RED}$cap_name${NC} ($cap)" | tee -a $LOG_FILE
+              
+            elif echo "$line" | grep -q "mount_probe"; then
+              dev=$(echo "$line" | grep -o 'dev="[^"]*"' | sed 's/dev="//;s/"$//')
+              type=$(echo "$line" | grep -o 'type="[^"]*"' | sed 's/type="//;s/"$//')
+              echo -e "[$timestamp] ${BOLD}${YELLOW}MOUNT${NC} | Process: ${CYAN}$process${NC} | PID: ${CYAN}$pid${NC} | Device: ${GREEN}$dev${NC} | Type: ${GREEN}$type${NC}" | tee -a $LOG_FILE
+              
+            elif echo "$line" | grep -q "module_probe"; then
+              # Extract module name more carefully
+              name=$(echo "$line" | grep -o 'name="[^"]*"' | sed 's/name="//;s/"$//')
+              if [ -z "$name" ]; then
+                # If empty, try broader pattern matching
+                name=$(echo "$line" | sed -n 's/.*[Nn][Aa][Mm][Ee][^A-Za-z0-9_-]*\([A-Za-z0-9_-]\+\).*/\1/p')
+                if [ -z "$name" ]; then 
+                  name="unknown"
+                fi
+              fi
+              
+              echo -e "[$timestamp] ${BOLD}${RED}MODULE${NC} | Process: ${CYAN}$process${NC} | PID: ${CYAN}$pid${NC} | Module: ${RED}$name${NC}" | tee -a $LOG_FILE
+              
+            else
+              # Default format for other events
+              echo -e "[$timestamp] ${line}" | tee -a $LOG_FILE
+            fi
+          done
+        }
+        
+        # Start the trace pipe monitor in background
+        trace_pipe_monitor &
         TRACE_PID=$!
       else
-        echo "Trace pipe not readable, falling back to basic monitoring"
+        echo -e "${YELLOW}Trace pipe not readable, falling back to basic monitoring${NC}"
         TRACE_PID=0
       fi
     else
-      echo "Kernel tracing is not available, using basic monitoring"
+      echo -e "${RED}Kernel tracing is not available, using basic monitoring${NC}"
       TRACE_PID=0
     fi
     
     # Periodic system monitoring regardless of kprobe availability
-    echo "Starting periodic system monitoring..."
+    echo -e "${BLUE}Starting periodic system monitoring...${NC}"
     
     # Function to detect suspicious activities through standard commands
     monitor_system() {
-      echo "=== Security scan at $(date) ===" | tee -a $LOG_FILE
+      echo -e "${BOLD}${GREEN}=== Security scan at $(date) ===${NC}" | tee -a $LOG_FILE
       
       # Check for privileged containers
-      echo "Checking for privileged containers..." | tee -a $LOG_FILE
-      ps aux | grep -E 'docker|containerd' | grep -v grep | tee -a $LOG_FILE
+      echo -e "${YELLOW}Checking for privileged containers...${NC}" | tee -a $LOG_FILE
+      containers=$(ps aux | grep -E 'docker|containerd' | grep -v grep)
+      if [ -n "$containers" ]; then
+        echo -e "${CYAN}$containers${NC}" | tee -a $LOG_FILE
+      else
+        echo -e "${GREEN}No suspicious container processes found${NC}" | tee -a $LOG_FILE
+      fi
       
       # Check for unexpected listeners
-      echo "Checking network listeners..." | tee -a $LOG_FILE
-      netstat -tulpn 2>/dev/null || ss -tulpn 2>/dev/null || echo "No network tools available" | tee -a $LOG_FILE
+      echo -e "${YELLOW}Checking network listeners...${NC}" | tee -a $LOG_FILE
+      listeners=$(netstat -tulpn 2>/dev/null || ss -tulpn 2>/dev/null || echo "No network tools available")
+      echo -e "${CYAN}$(echo "$listeners" | head -20)${NC}" | tee -a $LOG_FILE
       
       # Look for processes running as root in containers
-      echo "Checking for root processes..." | tee -a $LOG_FILE
-      ps -eo user,pid,ppid,cmd --sort=user | head -20 | tee -a $LOG_FILE
+      echo -e "${YELLOW}Checking for root processes...${NC}" | tee -a $LOG_FILE
+      root_procs=$(ps -eo user,pid,ppid,cmd --sort=user | head -20)
+      echo -e "${CYAN}$root_procs${NC}" | tee -a $LOG_FILE
       
       # Check for recent file modifications in sensitive paths
-      echo "Checking sensitive file modifications..." | tee -a $LOG_FILE
-      find /etc /var/lib/kubelet /etc/kubernetes -type f -mmin -60 2>/dev/null | head -10 | tee -a $LOG_FILE
+      echo -e "${YELLOW}Checking sensitive file modifications...${NC}" | tee -a $LOG_FILE
+      file_mods=$(find /etc /var/lib/kubelet /etc/kubernetes -type f -mmin -60 2>/dev/null | head -10)
+      if [ -n "$file_mods" ]; then
+        echo -e "${RED}Recent modifications:${NC}" | tee -a $LOG_FILE
+        echo -e "${CYAN}$file_mods${NC}" | tee -a $LOG_FILE
+      else
+        echo -e "${GREEN}No recent sensitive file modifications detected${NC}" | tee -a $LOG_FILE
+      fi
       
       # Check node resource usage (could indicate cryptomining)
-      echo "Checking system load..." | tee -a $LOG_FILE
-      uptime | tee -a $LOG_FILE
-      free -m | tee -a $LOG_FILE
+      echo -e "${YELLOW}Checking system load...${NC}" | tee -a $LOG_FILE
+      echo -e "${CYAN}$(uptime)${NC}" | tee -a $LOG_FILE
+      echo -e "${CYAN}$(free -m)${NC}" | tee -a $LOG_FILE
       
       # Check for unusual processes with high CPU/Memory
-      echo "Checking resource-intensive processes..." | tee -a $LOG_FILE
-      ps -eo pid,ppid,cmd,%cpu,%mem --sort=-%cpu | head -10 | tee -a $LOG_FILE
+      echo -e "${YELLOW}Checking resource-intensive processes...${NC}" | tee -a $LOG_FILE
+      high_usage=$(ps -eo pid,ppid,cmd,%cpu,%mem --sort=-%cpu | head -10)
+      echo -e "${CYAN}$high_usage${NC}" | tee -a $LOG_FILE
+      
+      # Add a separator for readability
+      echo -e "${BOLD}${GREEN}=== End of security scan ===${NC}" | tee -a $LOG_FILE
+      echo "" | tee -a $LOG_FILE
     }
     
     # Function for cleanup on exit
     cleanup() {
-      echo "Cleaning up monitoring..."
+      echo -e "${YELLOW}Cleaning up monitoring...${NC}"
       if [ $TRACE_PID -ne 0 ]; then
         kill $TRACE_PID 2>/dev/null
         # Clean up probes
@@ -105,8 +268,8 @@ data:
       exit 0
     }
     
-    # Set up signal handling
-    trap cleanup SIGINT SIGTERM
+    # Set up signal handling - use simpler syntax for Dash compatibility
+    trap cleanup INT TERM QUIT
     
     # Start periodic monitoring
     while true; do
