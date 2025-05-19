@@ -22,8 +22,7 @@ Read More: [eBPF-based K8s Monitoring](https://blog.sonichigo.com/building-a-nod
 ## Installation
 1. Clone the repository:
    ```bash
-   git clone https://github.com/sonichigo/ebpf-k8s-monitoring.git
-   cd ebpf-k8s-monitoring
+   git clone https://github.com/sonichigo/kubeTracer.git && cd kubeTracer
    ```
 2. Apply the Kubernetes manifests:
    ```bash
